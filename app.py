@@ -15,7 +15,9 @@ app = Flask(__name__)
 
 configuration = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
-
+@app.route("/", methods=['GET'])
+def health_check():
+    return 'OK', 200
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
