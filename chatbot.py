@@ -4,8 +4,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
-from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 load_dotenv()
 
@@ -29,21 +29,37 @@ retriever = db.as_retriever(
 print("Step 8: Retriever ready!")
 
 print("Step 9: Building chain...")
-contextualize_prompt = ChatPromptTemplate.from_messages([
-    ("system", """Given the chat history and the latest user question about Tatung University (TTU),
-    rephrase it as a standalone question that can be understood without the chat history.
-    Important rules:
-    - TTU and Tatung University refer to the same institution in Taipei, Taiwan.
-    - Always expand TTU to Tatung University in the rephrased question.
-    - For example: "where is TTU located" becomes "where is Tatung University located"
-    Do NOT answer the question, just rephrase it."""),
-    MessagesPlaceholder("chat_history"),
-    ("human", "{input}"),
-])
 
-history_aware_retriever = create_history_aware_retriever(
-    llm, retriever, contextualize_prompt
-)
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+def get_context(input_dict):
+    question = input_dict.get("standalone_question", input_dict.get("input", ""))
+    docs = retriever.invoke(question)
+    return format_docs(docs)
+
+def condense_question(input_dict):
+    chat_history = input_dict.get("chat_history", [])
+    question = input_dict.get("input", "")
+    
+    if not chat_history:
+        return question
+    
+    condense_prompt = ChatPromptTemplate.from_messages([
+        ("system", """Given the chat history and the latest user question about Tatung University (TTU),
+        rephrase it as a standalone question.
+        TTU and Tatung University refer to the same institution in Taipei, Taiwan.
+        Always expand TTU to Tatung University in the rephrased question.
+        Return ONLY the rephrased question, nothing else."""),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+    
+    condense_chain = condense_prompt | llm | StrOutputParser()
+    return condense_chain.invoke({
+        "chat_history": chat_history,
+        "input": question
+    })
 
 answer_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are a helpful assistant for Tatung University, also known as TTU, located in Taipei, Taiwan.
@@ -58,8 +74,20 @@ Context:
     ("human", "{input}"),
 ])
 
-question_answer_chain = create_stuff_documents_chain(llm, answer_prompt)
-chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+def run_chain(input_dict):
+    standalone = condense_question(input_dict)
+    context = get_context({"input": standalone})
+    
+    prompt_input = {
+        "context": context,
+        "chat_history": input_dict.get("chat_history", []),
+        "input": input_dict.get("input", "")
+    }
+    
+    response = (answer_prompt | llm | StrOutputParser()).invoke(prompt_input)
+    return {"answer": response}
+
+chain = RunnableLambda(run_chain)
 print("Step 10: Chain ready!")
 
 if __name__ == "__main__":
