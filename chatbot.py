@@ -9,28 +9,26 @@ from langchain_classic.chains.combine_documents import create_stuff_documents_ch
 
 load_dotenv()
 
-print("Loading embeddings...")
-embedding = HuggingFaceEmbeddings(
-    model_name="all-MiniLM-L6-v2"
-)
+print("Step 1: Loading embeddings...")
+embedding = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+print("Step 2: Embeddings loaded!")
 
-print("Loading vector database...")
-db = Chroma(
-    persist_directory="vectordb",
-    embedding_function=embedding
-)
+print("Step 3: Loading vector database...")
+db = Chroma(persist_directory="vectordb", embedding_function=embedding)
+print("Step 4: Vector database loaded!")
 
+print("Step 5: Loading LLM...")
+llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+print("Step 6: LLM loaded!")
+
+print("Step 7: Building retriever...")
 retriever = db.as_retriever(
     search_type="mmr",
     search_kwargs={"k": 8, "fetch_k": 20}
 )
+print("Step 8: Retriever ready!")
 
-print("Loading LLM...")
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0
-)
-
+print("Step 9: Building chain...")
 contextualize_prompt = ChatPromptTemplate.from_messages([
     ("system", """Given the chat history and the latest user question about Tatung University (TTU),
     rephrase it as a standalone question that can be understood without the chat history.
@@ -62,6 +60,7 @@ Context:
 
 question_answer_chain = create_stuff_documents_chain(llm, answer_prompt)
 chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+print("Step 10: Chain ready!")
 
 if __name__ == "__main__":
     print("Chatbot ready! Type 'exit' to quit.\n")
